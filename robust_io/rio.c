@@ -123,8 +123,3 @@ ssize_t rio_readlineb(rio_t *rp, void *user_buf, size_t maxlen) {
 	*bufp++ = '\0';
 	return ((void *)bufp - user_buf);
 }
-
-
-
-
-
