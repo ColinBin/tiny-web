@@ -1,5 +1,5 @@
 #include "socket_pack.h"
-#include "rio.h"
+#include "../robust_io/rio.h"
 #include <stdio.h>
 #define MAXLINE 1024
 int main(int argc, char **argv){
@@ -17,7 +17,7 @@ int main(int argc, char **argv){
 
 	while(fgets(buf, MAXLINE, stdin) != NULL){
 		rio_writen(client_fd, buf, strlen(buf));
-		rio_readnb(&rio, buf, strlen(buf));
+		rio_readlineb(&rio, buf, MAXLINE);
 		fputs(buf, stdout);
 	}
 	close(client_fd);

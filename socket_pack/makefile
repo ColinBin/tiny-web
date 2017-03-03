@@ -1,10 +1,10 @@
-client: rio.o socket_pack.o client.o
-	gcc rio.o socket_pack.o client.o -o client
-server: rio.o socket_pack.o server.o
-	gcc rio.o socket_pack.o server.o -o server
-client.o: rio.h socket_pack.h client.c
-	gcc -c client.c -o client.o
-server.o: rio.h socket_pack.h server.c
-	gcc -c server.c -o server.o
+echo_client: ../robust_io/rio.o socket_pack.o echo_client.o
+	gcc ../robust_io/rio.o socket_pack.o echo_client.o -o echo_client
+echo_server: ../robust_io/rio.o socket_pack.o echo_server.o
+	gcc ../robust_io/rio.o socket_pack.o echo_server.o -o echo_server
+echo_client.o: ../robust_io/rio.h socket_pack.h echo_client.c
+	gcc -c echo_client.c -o echo_client.o
+echo_server.o: ../robust_io/rio.h socket_pack.h echo_server.c
+	gcc -c echo_server.c -o echo_server.o
 clean:
-	rm client.o server.o client server
+	rm echo_client.o echo_server.o echo_client echo_server

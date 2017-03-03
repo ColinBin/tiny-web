@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include "socket_pack.h"
-#include "rio.h"
+#include "../robust_io/rio.h"
 
 #define MAXLINE 1024
 
