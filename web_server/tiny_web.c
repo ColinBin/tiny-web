@@ -11,12 +11,12 @@ extern char **environ;
 
 void serve(int connfd);
 void client_error(int connfd, char *cause, char *error_number, char *short_msg, char *long_msg);
-void read_requesthdrs(rio_t *rp);
+void read_requesthdrs(rio_t *rp, int *length, char *type);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int connfd, char *filename, int filesize, int method_head);
-void serve_dynamic(int connfd, char *filename, char *cgiargs, int method_head);
+void serve_static(int connfd, char *filename, int filesize, char *method);
+void serve_dynamic(int connfd, char *filename, char *cgiargs, char *method, char *post_content_type, int post_content_length);
 void check_filetype(char *filename, char *filetype);
-int check_method(char *method, char *standard_method);				// return 1 if method is standard_method, 0 otherwise
+int str_case_equal(char *str1, char *str2);				// return 1 if method is standard_method, 0 otherwise
 
 void handler(int sig) {
 	pid_t pid;
@@ -66,24 +66,21 @@ void serve(int connfd) {
 	char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
 	char cgiargs[MAXLINE], filename[MAXLINE];
 	int is_static;
-	int method_head;
 	struct stat filestat;
+	int post_content_length;
+	char post_content_type[MAXLINE];
 	rio_readinitb(&rio, connfd);
 
 	rio_readlineb(&rio, buf, MAXLINE);
 	sscanf(buf, "%s %s %s", method, uri, version);
 
-	if(check_method(method, "GET")) {
-		method_head = 0;
-	} else if(check_method(method, "HEAD")) {
-		method_head = 1;
-	} else {
+	if(!str_case_equal(method, "GET") && !str_case_equal(method, "HEAD") && !str_case_equal(method, "POST")){
 		client_error(connfd, method, "501", "Not Implemented", "Tiny web does not support this method(, yet)");
 		return ;
 	}
 
 	printf("%s", buf);		/* print request line */
-	read_requesthdrs(&rio);
+	read_requesthdrs(&rio, &post_content_length, post_content_type);
 
 	is_static = parse_uri(uri, filename, cgiargs);
 	if(stat(filename, &filestat) < 0) {
@@ -95,13 +92,13 @@ void serve(int connfd) {
 			client_error(connfd, filename, "403", "Forbidden", "Tiny cannot open this file");
 			return ;
 		}
-		serve_static(connfd, filename, filestat.st_size, method_head);
+		serve_static(connfd, filename, filestat.st_size, method);				// deals with get and head
 	} else {
 		if(!(S_ISREG(filestat.st_mode)) || !(S_IXUSR & filestat.st_mode)) {
 			client_error(connfd, filename, "403", "Forbidden", "Tiny cannot execute this file");
 			return;
 		}
-		serve_dynamic(connfd, filename, cgiargs, method_head);
+		serve_dynamic(connfd, filename, cgiargs, method, post_content_type, post_content_length);						// deals with get head and post
 	}
 
 }
@@ -121,11 +118,20 @@ void client_error(int connfd, char *cause, char *error_number, char *short_msg, 
 	rio_writen(connfd, body, strlen(body));
 }
 
-void read_requesthdrs(rio_t *rp) {
+void read_requesthdrs(rio_t *rp, int *length, char *type) {
 	char buf[MAXLINE];
+	char *ptr;
 	rio_readlineb(rp, buf, MAXLINE);
 	while(strcmp(buf, "\r\n")) {
 		printf("%s", buf);
+		if(strcasestr(buf, "Content-Type")) {
+			ptr = strchr(buf, ':');
+			strcpy(type, ptr + 1);
+
+		} else if(strcasestr(buf, "Content-Length")) {
+			ptr = strchr(buf, ':');
+			*length = atoi(ptr + 1);
+		}
 		rio_readlineb(rp, buf, MAXLINE);
 	}
 }
@@ -154,7 +160,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs) {
 	}
 }
 
-void serve_static(int connfd, char *filename, int filesize, int method_head){
+void serve_static(int connfd, char *filename, int filesize, char *method){
 	char buf[MAXLINE];
 	char filetype[MAXLINE];
 	check_filetype(filename, filetype);
@@ -167,7 +173,7 @@ void serve_static(int connfd, char *filename, int filesize, int method_head){
 	rio_writen(connfd, buf, strlen(buf));
 	sprintf(buf, "Content-length: %d\r\n\r\n", filesize);
 	rio_writen(connfd, buf, strlen(buf));
-	if(method_head) {
+	if(str_case_equal(method, "HEAD")) {
 		return;
 	}
 	int filefd = open(filename, O_RDONLY, 0);
@@ -191,13 +197,15 @@ void check_filetype(char *filename, char *filetype){
 	}
 }
 
-int check_method(char *method, char *standard_method){
-	if(strcasecmp(method, standard_method))
+int str_case_equal(char *str1, char *str2){
+	if(strcasecmp(str1, str2))
 		return 0;
 	else
 		return 1;
 }
-void serve_dynamic(int connfd, char *filename, char *cgiargs, int method_head) {
+
+
+void serve_dynamic(int connfd, char *filename, char *cgiargs, char *method, char *post_content_type, int post_content_length) {
 	char buf[MAXLINE];
 	char *emptylist[] = { NULL };
 	sprintf(buf, "HTTP/1.1 200 OK\r\n");
@@ -206,10 +214,20 @@ void serve_dynamic(int connfd, char *filename, char *cgiargs, int method_head) {
 	rio_writen(connfd, buf, strlen(buf));
 	if(fork() == 0) {
 		/* should set all environment variables */
-		if(method_head){
-			setenv("METHOD_HEAD", "TRUE", 1);
-		} else{
-			setenv("METHOD_HEAD", "FALSE", 1);
+		if(str_case_equal(method, "POST")) {
+			char str_length[MAXLINE];
+			setenv("REQUEST_METHOD", "POST", 1);
+			setenv("CONTENT_TYPE", post_content_type, 1);
+			sprintf(str_length, "%d", post_content_length);
+			setenv("CONTENT_LENGTH", str_length, 1);
+			dup2(connfd, STDIN_FILENO);
+		} else {
+			setenv("REQUEST_METHOD", "GET", 1);
+			if(str_case_equal(method, "HEAD")){
+				setenv("METHOD_HEAD", "TRUE", 1);
+			} else{
+				setenv("METHOD_HEAD", "FALSE", 1);
+			}
 		}
 		setenv("QUERY_STRING", cgiargs, 1);
 		dup2(connfd, STDOUT_FILENO);
