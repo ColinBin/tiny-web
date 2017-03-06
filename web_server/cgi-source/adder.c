@@ -27,7 +27,7 @@ int main(int argc, char **argv){
 		sum = a + b;
 		sprintf(buf, "<html><title>Tiny Web Server</title>\r\n");
 		sprintf(buf, "%s<body><h1>The result is: %d</h1>\r\n", buf, sum);
-		sprintf(buf, "%s<p>Thanks for using adder!\r\nHave a nice day</p></body></html>", buf);
+		sprintf(buf, "%s<p>Thanks for using adder!\r\nHave a nice day!</p></body></html>\r\n", buf);
 	}
 	else {
 		// display the form

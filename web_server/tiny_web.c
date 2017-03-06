@@ -14,9 +14,9 @@ void client_error(int connfd, char *cause, char *error_number, char *short_msg, 
 void read_requesthdrs(rio_t *rp, int *length, char *type);
 int parse_uri(char *uri, char *filename, char *cgiargs);
 void serve_static(int connfd, char *filename, int filesize, char *method);
-void serve_dynamic(int connfd, char *filename, char *cgiargs, char *method, char *post_content_type, int post_content_length);
+void serve_dynamic(int connfd, char *filename, char *cgiargs, char *method, char *post_content_type, int post_content_length, rio_t *rp);
 void check_filetype(char *filename, char *filetype);
-int str_case_equal(char *str1, char *str2);				// return 1 if method is standard_method, 0 otherwise
+int str_case_equal(char *str1, char *str2);				// return 1 if two strs are the same regardless of the case
 
 void handler(int sig) {
 	pid_t pid;
@@ -67,7 +67,7 @@ void serve(int connfd) {
 	char cgiargs[MAXLINE], filename[MAXLINE];
 	int is_static;
 	struct stat filestat;
-	int post_content_length;
+	int post_content_length = 0;
 	char post_content_type[MAXLINE];
 	rio_readinitb(&rio, connfd);
 
@@ -98,7 +98,7 @@ void serve(int connfd) {
 			client_error(connfd, filename, "403", "Forbidden", "Tiny cannot execute this file");
 			return;
 		}
-		serve_dynamic(connfd, filename, cgiargs, method, post_content_type, post_content_length);						// deals with get head and post
+		serve_dynamic(connfd, filename, cgiargs, method, post_content_type, post_content_length, &rio);						// deals with get head and post
 	}
 
 }
@@ -205,23 +205,48 @@ int str_case_equal(char *str1, char *str2){
 }
 
 
-void serve_dynamic(int connfd, char *filename, char *cgiargs, char *method, char *post_content_type, int post_content_length) {
+void serve_dynamic(int connfd, char *filename, char *cgiargs, char *method, char *post_content_type, int post_content_length, rio_t *rp) {
 	char buf[MAXLINE];
+	char post_data[MAXBUF];
 	char *emptylist[] = { NULL };
+
+	// write partial of response headers
 	sprintf(buf, "HTTP/1.1 200 OK\r\n");
 	rio_writen(connfd, buf, strlen(buf));
 	sprintf(buf, "Server: Tiny Web Server\r\n");
 	rio_writen(connfd, buf, strlen(buf));
+
 	if(fork() == 0) {
 		/* should set all environment variables */
 		if(str_case_equal(method, "POST")) {
+			/*
+				the basic idea to deal with buffered post data is:
+					1. create a file (get a file descriptor);
+					2. copy the buffered data to the file;
+					3. redirect cgi programs to read from the file as stdin;
+						(now two fd point to the same open file table entry)
+					4. close the file before running the cgi program;
+			*/
 			char str_length[MAXLINE];
+			int pipe_fd[2];			// pipe_fd[0] for reading pipe_fd[1] for writing
+			memset(post_data, 0, MAXBUF);
+			rio_readnb(rp, post_data, post_content_length);
+
+			if(pipe(pipe_fd) < 0) {
+				fprintf(stderr, "Pipe Error\n");
+				exit(errno);
+			}
+			rio_writen(pipe_fd[1], post_data, post_content_length);
+			close(pipe_fd[1]);
+			dup2(pipe_fd[0], STDIN_FILENO);
+			close(pipe_fd[0]);
 			setenv("REQUEST_METHOD", "POST", 1);
 			setenv("CONTENT_TYPE", post_content_type, 1);
 			sprintf(str_length, "%d", post_content_length);
 			setenv("CONTENT_LENGTH", str_length, 1);
-			dup2(connfd, STDIN_FILENO);
+
 		} else {
+			setenv("QUERY_STRING", cgiargs, 1);
 			setenv("REQUEST_METHOD", "GET", 1);
 			if(str_case_equal(method, "HEAD")){
 				setenv("METHOD_HEAD", "TRUE", 1);
@@ -229,7 +254,6 @@ void serve_dynamic(int connfd, char *filename, char *cgiargs, char *method, char
 				setenv("METHOD_HEAD", "FALSE", 1);
 			}
 		}
-		setenv("QUERY_STRING", cgiargs, 1);
 		dup2(connfd, STDOUT_FILENO);
 		execve(filename, emptylist, environ);
 	}
