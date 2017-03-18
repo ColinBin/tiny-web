@@ -16,7 +16,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs);
 void serve_static(int connfd, char *filename, int filesize, char *method);
 void serve_dynamic(int connfd, char *filename, char *cgiargs, char *method, char *post_content_type, int post_content_length, rio_t *rp);
 void check_filetype(char *filename, char *filetype);
-int str_case_equal(char *str1, char *str2);				// return 1 if two strs are the same regardless of the case
+int str_case_equal(char *str1, char *str2);
 
 /* reaps children */
 void handler(int sig) {
@@ -146,6 +146,7 @@ void read_requesthdrs(rio_t *rp, int *length, char *type) {
 		}
 		rio_readlineb(rp, buf, MAXLINE);
 	}
+	printf("%s", buf);
 }
 
 /* prepares cgi arguments and decides to serve static or dynamic */
@@ -211,6 +212,7 @@ void check_filetype(char *filename, char *filetype){
 	}
 }
 
+/* return 1 if two strs are the same regardless of the case */
 int str_case_equal(char *str1, char *str2){
 	if(strcasecmp(str1, str2))
 		return 0;
